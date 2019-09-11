@@ -1,0 +1,1420 @@
+---
+title: "AF 2018 Analysis"
+author: "Ewan Davies"
+date: "4 September 2018"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+<style>
+p.caption {
+  font-size: 0.6em;
+}
+</style>
+
+```{r setup, include=FALSE}
+
+#This document outlines the results of analysis of the results of a survey sent to people who had attended the adaptation futures conference in 2018. The goal is to assess how research into high end climate change (HECC, ie. Anything to do with warming of greater than 2 degrees) has changed since the same survey was taken two years previously. We also look into how the responses compare between different types of organisations and different locations using various techniques.
+
+library(readxl)
+library(data.table)
+library(ggplot2)
+library(likert)
+library(dplyr)
+library(grDevices)
+library(plyr)          
+library(likert)
+library(coin)
+
+my_faceted_plot_by_variable <- function(path, sheet = "sheet1", facet_cols = 4, prop = FALSE, save.location, save.width, save.height, save.dpi){
+
+  ##This takes the path and sheet of the spreadsheet where the data is stored, the variable and number of columns to facet by
+  # along with the save details for the image produced. The output is a graphic of faceted bar graphs
+  
+  data <- read_excel(path, sheet = sheet)
+  names(data)[c(1,2)] <- c("variable","Frequency")
+  data <- data[,c(1,2)]
+  
+  #First count up the co-occurrences of region and frequency, then find the proportion of people who answered each answer by region
+  prop_table <- data %>%
+    count(variable, Frequency) %>%
+    group_by(variable) %>%
+    mutate(total = sum(n),prop = n/sum(n)) %>%
+    as.data.frame() %>% 
+    filter(!is.na(variable)) %>%
+    filter(!is.na(Frequency))
+  
+  if(prop == FALSE){
+    
+    ggplot(prop_table, aes(x=Frequency, y=n)) +
+      geom_bar(stat='identity') +
+      facet_wrap( ~ variable, ncol=facet_cols) + 
+      theme(strip.text.y = element_text(size=6)) +
+      coord_flip() +
+      theme_bw() +
+      xlab('') +
+      ylab('') +
+      theme(text = element_text(colour="grey20",size=8,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.x = element_text(colour="grey20",size=6,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.y = element_text(colour="grey20",size=6,angle=0,hjust=1,vjust=0.5,face="plain"),  
+            axis.title.x = element_text(colour="grey20",size=12,angle=0,hjust=.5,vjust=0,face="plain"),
+            axis.title.y = element_text(colour="grey20",size=8,angle=90,hjust=.5,vjust=.5,face="plain")) +
+      theme(plot.title=element_text(family="", face="bold", size=6)) +
+      theme(legend.title = element_blank()) +
+      geom_text(stat="identity",aes(label=signif(n,2)), hjust=-0.2, size=1.5) +
+      scale_y_continuous(limits = c(0, max(prop_table$n)))
+  }else{
+    
+    ggplot(prop_table, aes(x=Frequency, y=prop)) +
+      geom_bar(stat='identity') +
+      facet_wrap( ~ variable, ncol=facet_cols) +
+      theme(strip.text.y = element_text(size=6)) +
+      coord_flip() +
+      theme_bw() +
+      xlab('') +
+      ylab('') +
+      theme(text = element_text(colour="grey20",size=8,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.x = element_text(colour="grey20",size=6,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.y = element_text(colour="grey20",size=6,angle=0,hjust=1,vjust=0.5,face="plain"),  
+            axis.title.x = element_text(colour="grey20",size=12,angle=0,hjust=.5,vjust=0,face="plain"),
+            axis.title.y = element_text(colour="grey20",size=8,angle=90,hjust=.5,vjust=.5,face="plain")) +
+      theme(plot.title=element_text(family="", face="bold", size=6)) +
+      theme(legend.title = element_blank()) +
+      geom_text(stat="identity",aes(label=signif(prop,2)), hjust=-0.2, size=1.5) +
+      scale_y_continuous(limits = c(0, max(prop_table$prop)))
+    
+  }
+  
+  ggsave(save.location, width=save.width, height=save.height, dpi=save.dpi)
+ 
+}
+
+my_likert <- function(scale, path, sheet, save.location=NULL, save.width=NULL, save.height=NULL, save.dpi=NULL) {
+  ##  This function takes a scale eg. "disagree","neither agree nor disagree","agree" (lowest to highest)  and the path (file path)
+  # of an excel spreadsheet and the sheet with the data in it (see documentation for the format of this spreadsheet)
+  # along with information about how and where to save the image produced (if you wish to save)
+  
+  data <- read_excel(path = path, 
+                   sheet = sheet) %>%
+    as.data.frame()
+  
+  desired.order <- scale
+  for(x in 1:length(names(data))){
+    data[,x] <- factor(data[,x], levels = scale)
+  }
+  
+ g <- plot(likert(data), type = "bar",
+       ordered = TRUE,
+       panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+       plot.percents = TRUE,
+       plot.percent.low = FALSE,
+       plot.percent.high = FALSE,
+       low.color = "#CC0033",
+       high.color = "#669900",
+       neutral.color = "grey80",
+       text.size = 2)
+ g
+ 
+ ggsave(save.location, width=save.width, height=save.height, dpi=save.dpi)
+ 
+ return(g)
+}
+
+my_stacked_proportion_barchart <- function(path, sheet, range, cols, col_names, 
+                                          save.location, save.width, save.height, save.dpi){
+  
+  #This reads in a summarised set of data
+  data <- read_excel(path, sheet = sheet, range = range)
+  
+  #remove unwanted columns
+  data <- (data %>%
+                 as.data.frame())[,cols]
+  names(data) <- col_names
+  
+  data2 <- data %>% #Order by frequently
+    arrange(desc(data[,2])) %>%
+    melt()
+  
+  ggplot(data2, aes(x=data2[,1],y=value,fill=variable))+
+    geom_bar(stat = "identity", position = "stack", width = 0.9)+
+    scale_x_discrete(limits=unique(data2[,1]))+
+    xlab("") +
+    ylab("")+
+    scale_y_continuous(labels = scales::percent) +
+    #scale_x_discrete(limits=platform.names.ascending)+ ## set the order of bars with this
+    coord_flip()+
+    scale_fill_manual(values=c("#CC0033","grey80","#669900") , labels=col_names[-1]) +
+    theme(text = element_text(size=6))
+  #geom_text(aes(label=a,y=data_1$t), vjust=-0.2) 
+  #geom_text(aes(label = ),hjust=-0.2, size=2)
+  #geom_text(stat="count",aes(label=..count..), hjust=-0.2, size=6)
+  
+  # This will save a 400x400 file at 100 ppi width=4, height=4, dpi=100)
+  ggsave(save.location, width = save.width, height = save.height, dpi = save.dpi)
+  
+}
+
+my_proportion_dots <- function(path, sheet, other, legend.title, save.location, save.width, save.height, save.dpi){
+  
+  #This is imported as a table for which each respondent has a row with their region and a 1 or 0 depending on whether they use each platform or not
+  data <- read_excel(path, sheet = sheet) %>%
+    as.data.frame()
+  
+  for (x in 1:length(data[,1])){
+    if(data[x,1] %in% other){
+      data[x,1] <- "Other Areas"
+    }
+  }
+  
+  #Then aggregate to count number of people using each platform by region
+  data_freq <- aggregate(data[,-c(1)],list(data[,1]),FUN = sum)
+  
+  #Reshape the data into a form to be plotted (platforms are now a column too) and we get a total count column
+  df1 <- melt(data_freq, id = "Group.1")
+  names(df1) <- c("Region", "Platform", "n")
+  
+  #calculate the frequencies
+  data_prop <- df1 %>%
+    group_by(Region) %>%
+    mutate(total = sum(n), prop = n/total)
+  
+  #reorder and set levels so that the graph displays in the correct order
+  data_prop <- data_prop[order(data_prop$total),]
+  levels <- unique(data_prop$Platform)
+  data_prop$Platform <- factor(data_prop$Platform, levels = levels)
+  
+  ggplot(data_prop,aes(x=reorder(Platform,prop),y=Region))+
+    geom_point(alpha = 0)+
+    stat_sum(aes(color = data_prop$prop, size = data_prop$prop))+
+    scale_size_area(guide=guide_legend(title=''))+
+    scale_color_gradient(low='white',high='purple',
+                         guide=guide_legend(title=legend.title))+
+    ggtitle('')+
+    xlab("")+
+    ylab("")+
+    coord_flip()+
+    theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+    theme(panel.background = element_rect(fill = "white")) + #new
+    geom_hline(yintercept=seq(1.5, length(unique(data_prop$Region))-0.5, 1), lwd=0.3, colour="black") +
+    geom_vline(xintercept=seq(1.5, length(unique(data_prop$Platform))-0.5, 1), lwd=0.3, colour="black") 
+  ggsave(save.location, width=save.width, height=save.height, dpi=save.dpi)
+  
+}
+
+scale1 <- c("Not at all", "Occasionally", "We are starting to", "All the time")
+scale2 <- c("Strongly disagree", "Disagree", "Neither agree nor disagree", "Agree", "Strongly Agree")
+scale3 <- c("Very difficult", "Difficult", "Neither easy nor difficult", "Easy", "Very Easy")
+
+```
+
+## __Likert data for 2018 HECC questions__
+
+```{r Q17, fig.height = 3, fig.width = 10, echo=FALSE}
+
+g <- my_likert(scale = scale1,
+          path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx",
+          sheet = "Q17",
+          save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q17_likert.png",
+          save.width = 12,
+          save.height = 4,
+          save.dpi = 1000)
+g
+
+
+```
+```{r Q18, fig.height = 4, fig.width = 10, echo = FALSE}
+
+g <- my_likert(scale = scale2,
+          path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx",
+          sheet = "Q18",
+          save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q18_likert.png",
+          save.width = 12,
+          save.height = 4,
+          save.dpi = 1000)
+g
+
+```
+```{r Q19, fig.height = 3, fig.width = 10, echo=FALSE}
+
+g <- my_likert(scale = scale3,
+          path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx",
+          sheet = "Q19",
+          save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q19_likert.png",
+          save.width = 12,
+          save.height = 4,
+          save.dpi = 1000)
+g
+
+```
+
+## __A comparison of HECC questions 2016 vs. 2018__
+
+### Q17.1: In my work I am considering climate changes of more than 2 degrees C
+
+```{r Q17.1 comparison, fig.height = 3, fig.width = 6, echo=FALSE}
+
+Q17.1.16 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2016survey/Adaptation Futures 2016  - Post conference survey (Responses).xlsx", sheet = "Form Responses 1", range = "AF1:AF169") %>%
+  as.data.frame()
+
+Q17.1.18 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Q17", range = "A1:A199") %>%
+  as.data.frame()
+
+sq <- 1:(max(length(Q17.1.16[,1]), length(Q17.1.18[,1])))
+
+Q17.1 <- data.frame(Q17.1.16[sq,1], Q17.1.18[sq,1])
+
+Q17.1[,1] <- factor(Q17.1[,1], levels = scale1)
+Q17.1[,2] <- factor(Q17.1[,2], levels = scale1)
+
+names(Q17.1) <- c("2016","2018")
+
+plot(likert(Q17.1), type = "bar",
+     center = 1.5,
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+     #legend.position = c(0.15,0.5))
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Q17.1_comparison.png", width=8, height=3, dpi=300)
+
+```
+
+### Q17.2: I am using high end climate change scenarios for decision-making processes in the context of adaptation/mitigation
+
+```{r Q17.2 comparison, fig.height = 3, fig.width = 6, echo=FALSE}
+
+Q17.2.16 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2016survey/Adaptation Futures 2016  - Post conference survey (Responses).xlsx", sheet = "Form Responses 1", range = "AH1:AH169") %>%
+  as.data.frame()
+
+Q17.2.18 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Q17", range = "B1:B199") %>%
+  as.data.frame()
+
+sq <- 1:(max(length(Q17.2.16[,1]), length(Q17.2.18[,1])))
+
+Q17.2 <- data.frame(Q17.2.16[sq,1], Q17.2.18[sq,1])
+
+Q17.2[,1] <- factor(Q17.2[,1], levels = scale1)
+Q17.2[,2] <- factor(Q17.2[,2], levels = scale1)
+
+names(Q17.2) <- c("2016","2018")
+
+plot(likert(Q17.2), type = "bar",
+     center = 1.5,
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+     #legend.position = c(0.15,0.5))
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q17.2_comparison.png", width=8, height=3, dpi=300)
+
+```
+
+### Q18.1: The likelihood of high-end climate change now becoming reality has decreased after the Paris agreement
+
+The chi-square test shows a significant shift to disagreement with this statement, with both strongly disagree and disagree increasing in proportion greatly, with these numbers cominng from the neutral category, as the the agree and strongly agree category are largely unchanged.
+
+```{r Q18.1 comparison, fig.height = 3, fig.width = 8, echo=FALSE}
+
+Q18.1.16 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2016survey/Adaptation Futures 2016  - Post conference survey (Responses).xlsx", sheet = "Form Responses 1", range = "AG1:AG169") %>%
+  as.data.frame()
+
+Q18.1.18 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Q18", range = "A1:A199") %>%
+  as.data.frame()
+
+sq <- 1:(max(length(Q18.1.16[,1]), length(Q18.1.18[,1])))
+
+Q18.1 <- data.frame(Q18.1.16[sq,1], Q18.1.18[sq,1])
+
+Q18.1[,1] <- factor(Q18.1[,1], levels = scale2)
+Q18.1[,2] <- factor(Q18.1[,2], levels = scale2)
+
+names(Q18.1) <- c("2016","2018")
+
+plot(likert(Q18.1), type = "bar",
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+     #legend.position = c(0.85,0.5))
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q18.1_comparison.png", width=8, height=3, dpi=300)
+
+```
+
+### Q18.2: We should wait with large-scale adaptation activities until we have more certainty about the impacts of high-end climate change
+
+This plot shows that while the proportions of neutral, agree and strongly agree have only decreased slightly, there has a been a significant increase in the strongly disagree proportion and a large reduction in the diagree proportion. It seems people disagree more strongly in 2018 than 2016. 
+
+```{r Q18.2 comparison, fig.height = 3, fig.width = 8, echo=FALSE}
+
+Q18.2.16 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2016survey/Adaptation Futures 2016  - Post conference survey (Responses).xlsx", sheet = "Form Responses 1", range = "AK1:AK169") %>%
+  as.data.frame()
+
+Q18.2.18 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Q18", range = "B1:B199") %>%
+  as.data.frame()
+
+sq <- 1:(max(length(Q18.2.16[,1]), length(Q18.2.18[,1])))
+
+Q18.2 <- data.frame(Q18.2.16[sq,1], Q18.2.18[sq,1])
+
+Q18.2[,1] <- factor(Q18.2[,1], levels = scale2)
+Q18.2[,2] <- factor(Q18.2[,2], levels = scale2)
+
+names(Q18.2) <- c("2016","2018")
+
+plot(likert(Q18.2), type = "bar",
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+     #legend.position = c(0.85,0.5))
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q18.2_comparison.png", width=8, height=3, dpi=300)
+
+```
+
+### Q18.3: We, as a society, have tools in place to deal with impacts from high-end climate change
+
+```{r Q18.3 comparison, fig.height = 3, fig.width = 8, echo=FALSE}
+
+Q18.3.16 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2016survey/Adaptation Futures 2016  - Post conference survey (Responses).xlsx", sheet = "Form Responses 1", range = "AL1:AL169") %>%
+  as.data.frame()
+
+Q18.3.18 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Q18", range = "C1:C199") %>%
+  as.data.frame()
+
+sq <- 1:(max(length(Q18.3.16[,1]), length(Q18.3.18[,1])))
+
+Q18.3 <- data.frame(Q18.3.16[sq,1], Q18.3.18[sq,1])
+
+Q18.3[,1] <- factor(Q18.3[,1], levels = scale2)
+Q18.3[,2] <- factor(Q18.3[,2], levels = scale2)
+
+names(Q18.3) <- c("2016","2018")
+
+plot(likert(Q18.3), type = "bar",
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+     #legend.position = c(0.86,0.5))
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q18.3_comparison.png", width=8, height=3, dpi=300)
+
+```
+
+### Q19.1: It is easy to find information about potential impacts of high-end climate change
+
+We see a significant shift from the agree and neutral categories to the disagree category with the extremities changing very little
+
+
+```{r Q19.1 comparison, fig.height = 3, fig.width = 8, echo=FALSE}
+
+Q19.1.16 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2016survey/Adaptation Futures 2016  - Post conference survey (Responses).xlsx", sheet = "Form Responses 1", range = "AI1:AI169") %>%
+  as.data.frame()
+
+Q19.1.18 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Q19", range = "A1:A199") %>%
+  as.data.frame()
+
+sq <- 1:(max(length(Q19.1.16[,1]), length(Q19.1.18[,1])))
+
+Q19.1 <- data.frame(Q19.1.16[sq,1], Q19.1.18[sq,1])
+
+Q19.1[,1] <- factor(Q19.1[,1], levels = scale3)
+Q19.1[,2] <- factor(Q19.1[,2], levels = scale3)
+
+names(Q19.1) <- c("2016","2018")
+
+plot(likert(Q19.1), type = "bar",
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+     #legend.position = c(0.15,0.5))
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q19.1_comparison.png", width=8, height=3, dpi=300)
+
+```
+
+### Q19.2: It is easy to find information about decision making with respect to impacts, adaptation and vulnerability in the context of high-end climate change
+
+We see a significant change from both positive and negative answers to a more neutral answer.
+
+```{r Q19.2 comparison, fig.height = 3, fig.width = 8, echo=FALSE}
+
+Q19.2.16 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2016survey/Adaptation Futures 2016  - Post conference survey (Responses).xlsx", sheet = "Form Responses 1", range = "AJ1:AJ169") %>%
+  as.data.frame()
+
+Q19.2.18 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Q19", range = "B1:B199") %>%
+  as.data.frame()
+
+sq <- 1:(max(length(Q19.2.16[,1]), length(Q19.2.18[,1])))
+
+Q19.2 <- data.frame(Q19.2.16[sq,1], Q19.2.18[sq,1])
+
+Q19.2[,1] <- factor(Q19.2[,1], levels = scale3)
+Q19.2[,2] <- factor(Q19.2[,2], levels = scale3)
+
+names(Q19.2) <- c("2016","2018")
+
+plot(likert(Q19.2), type = "bar",
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+     #legend.position = c(0.85,0.5))
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/Q19.2_comparison.png", width=8, height=3, dpi=300)
+
+```
+
+## Chi-square tests for changes in distribution of answers to HECC questions 2016 vs. 2018
+
+  The chi-square test finds the probability (p) of the distribution of answers to a question remaining the same in 2018 as it was in 2016. Note: This assumes the data is categorical with no repeat answers, so we assume the people answering the survey are not the same in 2016 as in 2018. This is reasonable in a sample size as large as ours.
+  
+  The Chi-square test has found a significant difference in questions 18.1 (p = 1.812e-05), 18.2(p = 0.0009099), 19.1(p = 0.01172) and 19.2(p = 0.04834). There is a possible issue in 18.2 where too few (3) people selected "strongly agree" to be sure the approximations made in the test are accurate, though much literature says that as long as the number is greater than 1, the approximation is good enough in a large sample.
+  
+  The Wilcoxon-Mann-Whitney test tests whether there has been a general shift in opinion rather than a change in the proportions of people falling into categories.
+  
+  The Wilcoxon-Mann-Whitney test has found a significant difference in questions 18.1 (p-value = 0.0001868), 18.2 (p-value = 0.0008766) with responses to both of these questions becoming more negative in 2018 than they were in 2016.
+
+```{r statistical tests for 17.1 2016 vs. 2018, echo = FALSE}
+
+Q17.1_summarised <- left_join(as.data.frame(table(Q17.1[,1])),as.data.frame(table(Q17.1[,2])), by = c("Var1"))
+levels(Q17.1_summarised[,1]) <- scale1
+names(Q17.1_summarised) <- c("variable", "2016", "2018")
+chisq.test(Q17.1_summarised[,-c(1)])
+
+Q17.1_melt <- melt(Q17.1, na.rm = TRUE, id.vars = NULL)
+Q17.1_melt$value <- mapvalues(Q17.1_melt$value, from = scale1, to = 1:4) %>%
+  as.numeric()
+wilcox_test(value ~ variable, data = Q17.1_melt)
+
+```
+
+```{r statistical tests for 17.2 2016 vs. 2018, echo = FALSE}
+
+Q17.2_summarised <- left_join(as.data.frame(table(Q17.2[,1])),as.data.frame(table(Q17.2[,2])), by = c("Var1"))
+levels(Q17.2_summarised[,1]) <- scale1
+names(Q17.2_summarised) <- c("variable", "2016", "2018")
+chisq.test(Q17.2_summarised[,-c(1)])
+
+Q17.2_melt <- melt(Q17.2, na.rm = TRUE, id.vars = NULL)
+Q17.2_melt$value <- mapvalues(Q17.2_melt$value, from = scale1, to = 1:4) %>%
+  as.numeric()
+wilcox_test(value ~ variable, data = Q17.2_melt)
+
+```
+
+```{r statistical tests for 18.1 2016 vs. 2018, echo = FALSE}
+
+Q18.1_summarised <- left_join(as.data.frame(table(Q18.1[,1])),as.data.frame(table(Q18.1[,2])), by = c("Var1"))
+levels(Q18.1_summarised[,1]) <- scale2
+names(Q18.1_summarised) <- c("variable", "2016", "2018")
+chisq.test(Q18.1_summarised[,-c(1)])
+
+Q18.1_melt <- melt(Q18.1, na.rm = TRUE, id.vars = NULL)
+Q18.1_melt$value <- mapvalues(Q18.1_melt$value, from = scale2, to = 1:5) %>%
+  as.numeric()
+wilcox_test(value ~ variable, data = Q18.1_melt)
+
+```
+
+```{r statistical tests for 18.2 2016 vs. 2018, echo = FALSE}
+
+Q18.2_summarised <- left_join(as.data.frame(table(Q18.2[,1])),as.data.frame(table(Q18.2[,2])), by = c("Var1"))
+levels(Q18.2_summarised[,1]) <- scale2
+names(Q18.2_summarised) <- c("variable", "2016", "2018")
+chisq.test(Q18.2_summarised[,-c(1)])
+
+Q18.2_melt <- melt(Q18.2, na.rm = TRUE, id.vars = NULL)
+Q18.2_melt$value <- mapvalues(Q18.2_melt$value, from = scale2, to = 1:5) %>%
+  as.numeric()
+wilcox_test(value ~ variable, data = Q18.2_melt)
+
+```
+
+```{r statistical tests for 18.3 2016 vs. 2018, echo = FALSE}
+
+Q18.3_summarised <- left_join(as.data.frame(table(Q18.3[,1])),as.data.frame(table(Q18.3[,2])), by = c("Var1"))
+levels(Q18.3_summarised[,1]) <- scale2
+names(Q18.3_summarised) <- c("variable", "2016", "2018")
+chisq.test(Q18.3_summarised[,-c(1)])
+
+Q18.3_melt <- melt(Q18.3, na.rm = TRUE, id.vars = NULL)
+Q18.3_melt$value <- mapvalues(Q18.3_melt$value, from = scale2, to = 1:5) %>%
+  as.numeric()
+wilcox_test(value ~ variable, data = Q18.3_melt)
+
+```
+
+```{r statistical tests for 19.1 2016 vs. 2018, echo = FALSE}
+
+Q19.1_summarised <- left_join(as.data.frame(table(Q19.1[,1])),as.data.frame(table(Q19.1[,2])), by = c("Var1"))
+levels(Q19.1_summarised[,1]) <- scale3
+names(Q19.1_summarised) <- c("variable", "2016", "2018")
+chisq.test(Q19.1_summarised[,-c(1)])
+
+Q19.1_melt <- melt(Q19.1, na.rm = TRUE, id.vars = NULL)
+Q19.1_melt$value <- mapvalues(Q19.1_melt$value, from = scale3, to = 1:5) %>%
+  as.numeric()
+wilcox_test(value ~ variable, data = Q19.1_melt)
+
+```
+
+```{r statistical tests for 19.2 2016 vs. 2018, echo = FALSE}
+
+Q19.2_summarised <- left_join(as.data.frame(table(Q19.2[,1])),as.data.frame(table(Q19.2[,2])), by = c("Var1"))
+levels(Q19.2_summarised[,1]) <- scale3
+names(Q19.2_summarised) <- c("variable", "2016", "2018")
+chisq.test(Q19.2_summarised[,-c(1)])
+
+Q19.2_melt <- melt(Q19.2, na.rm = TRUE, id.vars = NULL)
+Q19.2_melt$value <- mapvalues(Q19.2_melt$value, from = scale3, to = 1:5) %>%
+  as.numeric()
+wilcox_test(value ~ variable, data = Q19.2_melt)
+
+```
+
+### HECC Questions Faceted by Location
+
+```{r HECC Analysis by Location, fig.height = 3, fig.width = 6, echo=FALSE}
+
+HECC_location <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+     sheet = "HECC_Location") %>%
+  as.data.frame()
+
+HECC_Questions <- names(HECC_location)[-1]
+
+names(HECC_location) <- c("Location",
+                          "Q17.1",
+                          "Q17.2",
+                          "Q18.1",
+                          "Q18.2",
+                          "Q18.3",
+                          "Q19.1",
+                          "Q19.2")
+
+
+for(x in 1:7){
+
+Q_location <- HECC_location[,c(1,x + 1)] %>%
+  count(c("Location", names(HECC_location)[x + 1])) %>%
+  na.omit()
+if(x %in% c(1,2)){
+  Q_location[,2] <- factor(Q_location[,2], levels = scale1)
+} else if(x %in% 3:5){
+  Q_location[,2] <- factor(Q_location[,2], levels = scale2)
+} else{
+  Q_location[,2] <- factor(Q_location[,2], levels = scale3)
+}
+
+ggplot(Q_location, aes(x=Q_location[,2], y=freq)) +
+      geom_bar(stat='identity') +
+      facet_wrap( ~ Location, ncol=4) + 
+      theme(strip.text.y = element_text(size=6)) +
+      coord_flip() +
+      theme_bw() +
+      xlab('') +
+      ylab('') +
+      ggtitle(HECC_Questions[x]) +
+      theme(text = element_text(colour="grey20",size=8,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.x = element_text(colour="grey20",size=6,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.y = element_text(colour="grey20",size=6,angle=0,hjust=1,vjust=0.5,face="plain"),  
+            axis.title.x = element_text(colour="grey20",size=12,angle=0,hjust=.5,vjust=0,face="plain"),
+            axis.title.y = element_text(colour="grey20",size=8,angle=90,hjust=.5,vjust=.5,face="plain")) +
+      theme(plot.title=element_text(family="", face="bold", size=6)) +
+      theme(legend.title = element_blank()) +
+      geom_text(stat="identity",aes(label=signif(freq,2)), hjust=-0.2, size=1.5) +
+      scale_y_continuous(limits = c(0, max(Q_location$freq)))
+
+ggsave(paste("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/HECC plots/HECC_Location", x, ".png"),
+             width=8, height=3, dpi=300)
+
+}
+
+```
+
+### HECC Questions Faceted by Entity
+
+```{r HECC Analysis by Entity, fig.height = 3, fig.width = 6, echo=FALSE}
+
+HECC_Entity <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+     sheet = "HECC_Entity") %>%
+  as.data.frame()
+
+HECC_Questions <- names(HECC_Entity)[-1]
+
+names(HECC_Entity) <- c("Entity",
+                          "Q17.1",
+                          "Q17.2",
+                          "Q18.1",
+                          "Q18.2",
+                          "Q18.3",
+                          "Q19.1",
+                          "Q19.2")
+
+
+for(x in 1:7){
+
+Q_Entity <- HECC_Entity[,c(1,x + 1)] %>%
+  count(c("Entity", names(HECC_Entity)[x + 1])) %>%
+  na.omit()
+if(x %in% c(1,2)){
+  Q_Entity[,2] <- factor(Q_Entity[,2], levels = scale1)
+} else if(x %in% 3:5){
+  Q_Entity[,2] <- factor(Q_Entity[,2], levels = scale2)
+} else{
+  Q_Entity[,2] <- factor(Q_Entity[,2], levels = scale3)
+}
+
+print(
+ggplot(Q_Entity, aes(x=Q_Entity[,2], y=freq)) +
+      geom_bar(stat='identity') +
+      facet_wrap( ~ Entity, ncol=4) + 
+      theme(strip.text.y = element_text(size=6)) +
+      coord_flip() +
+      theme_bw() +
+      xlab('') +
+      ylab('') +
+      ggtitle(HECC_Questions[x]) +
+      theme(text = element_text(colour="grey20",size=8,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.x = element_text(colour="grey20",size=6,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.y = element_text(colour="grey20",size=6,angle=0,hjust=1,vjust=0.5,face="plain"),  
+            axis.title.x = element_text(colour="grey20",size=12,angle=0,hjust=.5,vjust=0,face="plain"),
+            axis.title.y = element_text(colour="grey20",size=8,angle=90,hjust=.5,vjust=.5,face="plain")) +
+      theme(plot.title=element_text(family="", face="bold", size=6)) +
+      theme(legend.title = element_blank()) +
+      geom_text(stat="identity",aes(label=signif(freq,2)), hjust=-0.2, size=1.5) +
+      scale_y_continuous(limits = c(0, max(Q_Entity$freq)))
+)
+ggsave(paste("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/HECC plots/HECC_Entity", x, ".png"),
+             width=8, height=3, dpi=300)
+
+}
+
+```
+
+### Analysis of HECC questions by Entity, Governmental vs. Research Organizations
+
+Both the chi-square and Wilcoxon-Mann-Whitney tests show no evidence that respondents from Governmental and research organizations answered the HECC questions differently.
+
+```{r HECC Analysis Gov vs. Other, echo = FALSE}
+gov <- c("Government", "Government agency", "Public policy")
+
+HECC_Entity_grouped <- HECC_Entity
+
+for(x in 1:length(HECC_Entity_grouped$Entity)){
+  if(HECC_Entity_grouped$Entity[x] %in% gov){
+    HECC_Entity_grouped$Entity[x] <- "Gov Related"
+  } else if(HECC_Entity_grouped$Entity[x] %in% c("Research organization")){
+    HECC_Entity_grouped$Entity[x] <- "Research"
+  } else {
+    HECC_Entity_grouped$Entity[x] <- NA
+  }
+}
+
+HECC_Entity_grouped_num <- HECC_Entity_grouped %>%
+  na.omit()
+
+HECC_Entity_grouped_num$Q17.1 <- mapvalues(HECC_Entity_grouped_num$Q17.1, from = scale1, to = 1:4) %>%
+  as.numeric()
+HECC_Entity_grouped_num$Q17.2 <- mapvalues(HECC_Entity_grouped_num$Q17.2, from = scale1, to = 1:4) %>%
+  as.numeric()
+HECC_Entity_grouped_num$Q18.1 <- mapvalues(HECC_Entity_grouped_num$Q18.1, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_Entity_grouped_num$Q18.2 <- mapvalues(HECC_Entity_grouped_num$Q18.2, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_Entity_grouped_num$Q18.3 <- mapvalues(HECC_Entity_grouped_num$Q18.3, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_Entity_grouped_num$Q19.1 <- mapvalues(HECC_Entity_grouped_num$Q19.1, from = scale3, to = 1:5) %>%
+  as.numeric()
+HECC_Entity_grouped_num$Q19.2 <- mapvalues(HECC_Entity_grouped_num$Q19.2, from = scale3, to = 1:5) %>%
+  as.numeric()
+
+for(x in 1:7){
+  print(
+    table(HECC_Entity_grouped[,c(x+1,1)])
+  )
+  print(
+    chisq.test(table(HECC_Entity_grouped[,c(x+1,1)]))
+  )
+  df <- HECC_Entity_grouped_num[,c(1,x+1)]
+  names(df) <- c("Entity", "Value")
+  df[,1] <- as.factor(df[,1])
+  print(
+    wilcox_test(Value ~ Entity, data = df)
+  )
+}
+
+```
+
+#### Now Combine categories to improve chi-square approximation:
+
+We combine "We are starting to" and "Occasionally" in Q17.1/2, and combine the 5-point likert scales into 3 in the obvious way. This also shows no statistically significant differences between Government and Research organisations in both the chi-square and Wilcoxon-Mann-Whitney tests.
+
+```{r Analysis of HECC questions by Entity, Government vs. Research with categories combined, echo = FALSE}
+
+scale1_combined <- c("Not at all", "In between", "All the time")
+scale2_combined <- c("Disagree", "Neither agree nor disagree", "Agree")
+scale3_combined <- c("Difficult", "Neither easy nor difficult", "Easy")
+
+HECC_Entity_grouped_combined <- HECC_Entity_grouped
+
+for(x in 2:8){
+  for(y in 1:length(HECC_Entity_grouped$Entity)){
+    
+    if(HECC_Entity_grouped[y,x] %in% c("Occasionally", "We are starting to")){
+      HECC_Entity_grouped_combined[y,x] <- "In between"
+    } else if(HECC_Entity_grouped[y,x] %in% c("Strongly disagree")){
+      HECC_Entity_grouped_combined[y,x] <- "Disagree"
+    } else if(HECC_Entity_grouped[y,x] %in% c("Strongly Agree")){
+      HECC_Entity_grouped_combined[y,x] <- "Agree"
+    } else if(HECC_Entity_grouped[y,x] %in% c("Very difficult")){
+      HECC_Entity_grouped_combined[y,x] <- "Difficult"
+    } else if(HECC_Entity_grouped[y,x] %in% c("Very Easy")){
+      HECC_Entity_grouped_combined[y,x] <- "Easy"
+    }
+    
+  }
+}
+
+HECC_Entity_grouped_combined_num <- HECC_Entity_grouped_combined %>%
+  na.omit()
+
+HECC_Entity_grouped_combined_num$Q17.1 <- mapvalues(HECC_Entity_grouped_combined_num$Q17.1, from = scale1_combined, to = 1:3) %>%
+  as.numeric()
+HECC_Entity_grouped_combined_num$Q17.2 <- mapvalues(HECC_Entity_grouped_combined_num$Q17.2, from = scale1_combined, to = 1:3) %>%
+  as.numeric()
+HECC_Entity_grouped_combined_num$Q18.1 <- mapvalues(HECC_Entity_grouped_combined_num$Q18.1, from = scale2_combined, to = 1:3) %>%
+  as.numeric()
+HECC_Entity_grouped_combined_num$Q18.2 <- mapvalues(HECC_Entity_grouped_combined_num$Q18.2, from = scale2_combined, to = 1:3) %>%
+  as.numeric()
+HECC_Entity_grouped_combined_num$Q18.3 <- mapvalues(HECC_Entity_grouped_combined_num$Q18.3, from = scale2_combined, to = 1:3) %>%
+  as.numeric()
+HECC_Entity_grouped_combined_num$Q19.1 <- mapvalues(HECC_Entity_grouped_combined_num$Q19.1, from = scale3_combined, to = 1:3) %>%
+  as.numeric()
+HECC_Entity_grouped_combined_num$Q19.2 <- mapvalues(HECC_Entity_grouped_combined_num$Q19.2, from = scale3_combined, to = 1:3) %>%
+  as.numeric()
+
+for(x in 1:7){
+  print(
+    table(HECC_Entity_grouped_combined[,c(x+1,1)])
+  )
+  print(
+    chisq.test(table(HECC_Entity_grouped_combined[,c(x+1,1)]))
+  )
+  df <- HECC_Entity_grouped_combined_num[,c(1,x+1)]
+  names(df) <- c("Entity", "Value")
+  df[,1] <- as.factor(df[,1])
+  print(
+    wilcox_test(Value ~ Entity, data = df)
+  )
+}
+
+```
+
+### Analysis of HECC questions by Location, Africa vs. Other
+
+The chi-square test shows a significant difference in answers to Q17.2(p-value = 0.04651) and Q19.1(p-value = 0.01926), however the Wilcoxon-Mann-Whitney test shows this difference does not constitute a significant change in opinion. We do, however, see a significant shift in opinion for Q17.1 (p-value = 0.0482) in the WMW test.
+
+```{r HECC Analysis by Location Africa vs. other, echo = FALSE}
+other <- c("Asia", "Australasia", "Central and South America", "Europe", "North America", "Small Islands")
+
+HECC_location_grouped1 <- HECC_location
+
+for(x in 1:length(HECC_location_grouped1$Location)){
+  if(HECC_location_grouped1$Location[x] %in% other){
+    HECC_location_grouped1$Location[x] <- "Other"
+  }
+}
+
+HECC_location_grouped1_num <- HECC_location_grouped1 %>%
+  na.omit()
+
+HECC_location_grouped1_num$Q17.1 <- mapvalues(HECC_location_grouped1_num$Q17.1, from = scale1, to = 1:4) %>%
+  as.numeric()
+HECC_location_grouped1_num$Q17.2 <- mapvalues(HECC_location_grouped1_num$Q17.2, from = scale1, to = 1:4) %>%
+  as.numeric()
+HECC_location_grouped1_num$Q18.1 <- mapvalues(HECC_location_grouped1_num$Q18.1, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped1_num$Q18.2 <- mapvalues(HECC_location_grouped1_num$Q18.2, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped1_num$Q18.3 <- mapvalues(HECC_location_grouped1_num$Q18.3, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped1_num$Q19.1 <- mapvalues(HECC_location_grouped1_num$Q19.1, from = scale3, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped1_num$Q19.2 <- mapvalues(HECC_location_grouped1_num$Q19.2, from = scale3, to = 1:5) %>%
+  as.numeric()
+
+for(x in 1:7){
+  print(
+    table(HECC_location_grouped1[,c(x+1,1)])
+  )
+  print(
+    chisq.test(table(HECC_location_grouped1[,c(x+1,1)]))
+  )
+  df <- HECC_location_grouped1_num[,c(1,x+1)]
+  names(df) <- c("location", "Value")
+  df[,1] <- as.factor(df[,1])
+  print(
+    wilcox_test(Value ~ location, data = df)
+  )
+}
+
+```
+
+### Q17.1: In my work I am considering climate changes of more than 2 degrees C
+
+We see that due to the much higher proportion of respondents from outside Africa selecting "All the time" we have a significantly higher positive response from outside Africa than from in. 
+
+```{r further analysis of Q17.1 Africa vs. Other, fig.height = 3, fig.width = 6, echo=FALSE}
+
+Q17.1_Africa <- (HECC_location_grouped1[,c(1,2)] %>%
+  filter(Location == "Africa"))[,2]
+Q17.1_Other <- (HECC_location_grouped1[,c(1,2)] %>%
+  filter(Location == "Other"))[,2]
+n <- max(length(Q17.1_Africa), length(Q17.1_Other))
+
+Q17.1_location_grouped1 <- data.frame(Q17.1_Other[1:n],Q17.1_Africa[1:n])
+names(Q17.1_location_grouped1) <- c("Other", "Africa")
+Q17.1_location_grouped1$Africa <- factor(Q17.1_location_grouped1$Africa, levels = scale1)
+Q17.1_location_grouped1$Other <- factor(Q17.1_location_grouped1$Other, levels = scale1)
+
+plot(likert(Q17.1_location_grouped1), type = "bar",
+     center = 1.5,
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+### Q17.2: I am using high end climate change scenarios for decision-making processes in the context of adaptation/mitigation
+
+Here we see a significant difference due to respondents from Africa selecting less extreme values than respondents from elsewhere.
+
+```{r further analysis of Q17.2 Africa vs. Other, fig.height = 3, fig.width = 6, echo=FALSE}
+
+Q17.2_Africa <- (HECC_location_grouped1[,c(1,3)] %>%
+  filter(Location == "Africa"))[,2]
+Q17.2_Other <- (HECC_location_grouped1[,c(1,3)] %>%
+  filter(Location == "Other"))[,2]
+n <- max(length(Q17.2_Africa), length(Q17.2_Other))
+
+Q17.2_location_grouped1 <- data.frame(Q17.2_Other[1:n],Q17.2_Africa[1:n])
+names(Q17.2_location_grouped1) <- c("Other", "Africa")
+Q17.2_location_grouped1$Africa <- factor(Q17.2_location_grouped1$Africa, levels = scale1)
+Q17.2_location_grouped1$Other <- factor(Q17.2_location_grouped1$Other, levels = scale1)
+
+plot(likert(Q17.2_location_grouped1), type = "bar",
+     center = 1.5,
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+### Q19.1: It is easy to find information about potential impacts of high-end climate change
+
+Here respondents from Africa responded more positively on the whole, however they also had a higher proportion of "very difficult" responses.
+
+```{r further analysis of Q19.1 Africa vs. Other, fig.height = 3, fig.width = 8, echo=FALSE}
+
+Q19.1_Africa <- (HECC_location_grouped1[,c(1,7)] %>%
+  filter(Location == "Africa"))[,2]
+Q19.1_Other <- (HECC_location_grouped1[,c(1,7)] %>%
+  filter(Location == "Other"))[,2]
+n <- max(length(Q19.1_Africa), length(Q19.1_Other))
+
+Q19.1_location_grouped1 <- data.frame(Q19.1_Other[1:n],Q19.1_Africa[1:n])
+names(Q19.1_location_grouped1) <- c("Other", "Africa")
+Q19.1_location_grouped1$Africa <- factor(Q19.1_location_grouped1$Africa, levels = scale3)
+Q19.1_location_grouped1$Other <- factor(Q19.1_location_grouped1$Other, levels = scale3)
+
+plot(likert(Q19.1_location_grouped1), type = "bar",
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+
+## Analysis of HECC questions by Location, North vs. South
+
+The chi square test shows no significant differences in answers to the HECC questions between Northern/Southern hemisphere regions, however there is a significant difference in question 17.1 given by the WMW test (p-value = 0.02344)
+
+```{r HECC Analysis by Location North vs. South, echo = FALSE}
+North <- c("Europe", "North America", "Asia")
+
+HECC_location_grouped2 <- HECC_location
+
+for(x in 1:length(HECC_location_grouped2$Location)){
+  if(HECC_location_grouped2$Location[x] %in% North){
+    HECC_location_grouped2$Location[x] <- "North"
+  } else {
+   HECC_location_grouped2$Location[x] <- "South"
+  }
+}
+
+HECC_location_grouped2_num <- HECC_location_grouped2 %>%
+  na.omit()
+
+HECC_location_grouped2_num$Q17.1 <- mapvalues(HECC_location_grouped2_num$Q17.1, from = scale1, to = 1:4) %>%
+  as.numeric()
+HECC_location_grouped2_num$Q17.2 <- mapvalues(HECC_location_grouped2_num$Q17.2, from = scale1, to = 1:4) %>%
+  as.numeric()
+HECC_location_grouped2_num$Q18.1 <- mapvalues(HECC_location_grouped2_num$Q18.1, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped2_num$Q18.2 <- mapvalues(HECC_location_grouped2_num$Q18.2, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped2_num$Q18.3 <- mapvalues(HECC_location_grouped2_num$Q18.3, from = scale2, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped2_num$Q19.1 <- mapvalues(HECC_location_grouped2_num$Q19.1, from = scale3, to = 1:5) %>%
+  as.numeric()
+HECC_location_grouped2_num$Q19.2 <- mapvalues(HECC_location_grouped2_num$Q19.2, from = scale3, to = 1:5) %>%
+  as.numeric()
+
+for(x in 1:7){
+  print(
+    table(HECC_location_grouped2[,c(x+1,1)])
+  )
+  print(
+    chisq.test(table(HECC_location_grouped2[,c(x+1,1)]))
+  )
+  df <- HECC_location_grouped2_num[,c(1,x+1)]
+  names(df) <- c("location", "Value")
+  df[,1] <- as.factor(df[,1])
+  print(
+    wilcox_test(Value ~ location, data = df)
+  )
+}
+
+```
+
+### Q17.1: In my work I am considering climate changes of more than 2 degrees C
+
+We see a signicantly more positive response to Q17.1 from Northern responents.
+
+```{r further analysis of Q17.1 North vs. South, fig.height = 3, fig.width = 6, echo=FALSE}
+
+Q17.1_North <- (HECC_location_grouped2[,c(1,2)] %>%
+  filter(Location == "North"))[,2]
+Q17.1_South <- (HECC_location_grouped2[,c(1,2)] %>%
+  filter(Location == "South"))[,2]
+n <- max(length(Q17.1_North), length(Q17.1_South))
+
+Q17.1_location_grouped2 <- data.frame(Q17.1_South[1:n],Q17.1_North[1:n])
+names(Q17.1_location_grouped2) <- c("South", "North")
+Q17.1_location_grouped2$North <- factor(Q17.1_location_grouped2$North, levels = scale1)
+Q17.1_location_grouped2$South <- factor(Q17.1_location_grouped2$South, levels = scale1)
+
+plot(likert(Q17.1_location_grouped2), type = "bar",
+     center = 1.5,
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+#### Now Combine categories to improve chi-square approximation:
+
+We now see a statistically significant (p-value = 0.03132 for chi square, p-value = 0.01587 for WMW) difference between North and South in Q17.1(In my work I am considering climate changes of more than 2 degrees C), showing a higher proportion of people in the Northern Hemisphere are considering HECC in their work "All the time" vs. "In between".
+
+```{r HECC Questions by Location, North vs. South Combined, echo = FALSE}
+
+HECC_location_grouped2_combined <- HECC_location_grouped2
+
+for(x in 2:8){
+  for(y in 1:length(HECC_location_grouped2$Location)){
+    
+    if(HECC_location_grouped2[y,x] %in% c("Occasionally", "We are starting to")){
+      HECC_location_grouped2_combined[y,x] <- "In between"
+    } else if(HECC_location_grouped2[y,x] %in% c("Strongly disagree")){
+      HECC_location_grouped2_combined[y,x] <- "Disagree"
+    } else if(HECC_location_grouped2[y,x] %in% c("Strongly Agree")){
+      HECC_location_grouped2_combined[y,x] <- "Agree"
+    } else if(HECC_location_grouped2[y,x] %in% c("Very difficult")){
+      HECC_location_grouped2_combined[y,x] <- "Difficult"
+    } else if(HECC_location_grouped2[y,x] %in% c("Very Easy")){
+      HECC_location_grouped2_combined[y,x] <- "Easy"
+    }
+    
+  }
+}
+
+HECC_location_grouped2_combined_num <- HECC_location_grouped2_combined
+
+HECC_location_grouped2_combined_num$Q17.1 <- mapvalues(HECC_location_grouped2_combined_num$Q17.1, from = scale1_combined, to = 1:3) %>%
+  as.numeric()
+HECC_location_grouped2_combined_num$Q17.2 <- mapvalues(HECC_location_grouped2_combined_num$Q17.2, from = scale1_combined, to = 1:3) %>%
+  as.numeric()
+HECC_location_grouped2_combined_num$Q18.1 <- mapvalues(HECC_location_grouped2_combined_num$Q18.1, from = scale2_combined, to = 1:3) %>%
+  as.numeric()
+HECC_location_grouped2_combined_num$Q18.2 <- mapvalues(HECC_location_grouped2_combined_num$Q18.2, from = scale2_combined, to = 1:3) %>%
+  as.numeric()
+HECC_location_grouped2_combined_num$Q18.3 <- mapvalues(HECC_location_grouped2_combined_num$Q18.3, from = scale2_combined, to = 1:3) %>%
+  as.numeric()
+HECC_location_grouped2_combined_num$Q19.1 <- mapvalues(HECC_location_grouped2_combined_num$Q19.1, from = scale3_combined, to = 1:3) %>%
+  as.numeric()
+HECC_location_grouped2_combined_num$Q19.2 <- mapvalues(HECC_location_grouped2_combined_num$Q19.2, from = scale3_combined, to = 1:3) %>%
+  as.numeric()
+
+for(x in 1:7){
+  print(
+    table(HECC_location_grouped2_combined[,c(x+1,1)])
+  )
+  print(
+    chisq.test(table(HECC_location_grouped2_combined[,c(x+1,1)]))
+  )
+  df <- HECC_location_grouped2_combined_num[,c(1,x+1)]
+  names(df) <- c("location", "Value")
+  df[,1] <- as.factor(df[,1])
+  print(
+    wilcox_test(Value ~ location, data = df)
+  )
+}
+
+```
+
+## Q17.1: In my work I am considering climate changes of more than 2 degrees C
+
+```{r likert plot of Q17.1 North vs. South with combined categories, fig.height = 3, fig.width = 10, echo=FALSE}
+
+to_plot <- HECC_location_grouped2_combined[,c(1,2)]
+
+to_plot_North <- (to_plot %>%
+  filter(Location == "North"))[,2]
+to_plor_South <- (to_plot %>%
+  filter(Location == "South"))[,2]
+n <- max(length(to_plot_North), length(to_plot_North))
+
+to_plot <- data.frame(to_plot_North[1:n],to_plor_South[1:n])
+names(to_plot) <- c("North", "South")
+to_plot$North <- factor(to_plot$North, levels = scale1_combined)
+to_plot$South <- factor(to_plot$South, levels = scale1_combined)
+
+plot(likert(to_plot), type = "bar",
+     ordered = FALSE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+## Cluster Analysis for HECC Questions
+
+### Cluster Analysis for Question 18
+
+The cluster analysis finds 4 clusters, 3 (clusters 1,2,3) of which with high (>0.75) Clusterwise Jaccard bootstrap, indicating stable clusters. Clusters 2 and 3 are in strong agreement for Q18.1 and Q18.2, showing similarly negative responses, but diverging on Q18.3 with cluster 2 strongly agreeing and cluster 3 strongly disagreeing.
+
+```{r Cluster Analysis for HECC Question 18, fig.height = 8, fig.width = 10, echo = FALSE}
+library(fpc)
+
+HECC_num <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual_num.xlsx", sheet = "HECC") %>%
+  na.omit()
+names(HECC_num) <- c("Q17.1", "Q17.2", "Q18.1", "Q18.2", "Q18.3", "Q19.1", "Q19.2")
+HECC_num <- HECC_num %>%
+  as.matrix()
+
+levels(HECC_num[,1]) <- 0:3
+levels(HECC_num[,2]) <- 0:3
+levels(HECC_num[,3]) <- 0:4
+levels(HECC_num[,4]) <- 0:4
+levels(HECC_num[,5]) <- 0:4
+levels(HECC_num[,6]) <- 0:4
+levels(HECC_num[,7]) <- 0:4
+
+cluster <- clusterboot(HECC_num[,3:5],B=100,bootmethod="boot", clustermethod = kmeansCBI, krange = 2:10, seed=1454) %>%
+  invisible()
+cluster %>%
+  print()
+
+HECC_clustered <- HECC_num[,3:5] %>%
+  as.data.frame() %>%
+  cbind(cluster = as.vector(cluster$result$partition))
+
+HECC_clustered <- mutate(HECC_clustered,
+Q18.1_1=ifelse(cluster==1,as.character(Q18.1),NA), Q18.1_2=ifelse(cluster==2,as.character(Q18.1),NA),
+Q18.1_3=ifelse(cluster==3,as.character(Q18.1),NA), Q18.1_4=ifelse(cluster==4,as.character(Q18.1),NA),
+Q18.2_1=ifelse(cluster==1,as.character(Q18.2),NA), Q18.2_2=ifelse(cluster==2,as.character(Q18.2),NA), 
+Q18.2_3=ifelse(cluster==3,as.character(Q18.2),NA), Q18.2_4=ifelse(cluster==4,as.character(Q18.2),NA), 
+Q18.3_1=ifelse(cluster==1,as.character(Q18.3),NA), Q18.3_2=ifelse(cluster==2,as.character(Q18.3),NA),
+Q18.3_3=ifelse(cluster==3,as.character(Q18.3),NA), Q18.3_4=ifelse(cluster==4,as.character(Q18.3),NA))
+
+HECC_clustered$Q18.1_1 <- factor(HECC_clustered$Q18.1_1, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.1_2 <- factor(HECC_clustered$Q18.1_2, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.1_3 <- factor(HECC_clustered$Q18.1_3, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.1_4 <- factor(HECC_clustered$Q18.1_4, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.2_1 <- factor(HECC_clustered$Q18.2_1, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.2_2 <- factor(HECC_clustered$Q18.2_2, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.2_3 <- factor(HECC_clustered$Q18.2_3, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.2_4 <- factor(HECC_clustered$Q18.2_4, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.3_1 <- factor(HECC_clustered$Q18.3_1, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.3_2 <- factor(HECC_clustered$Q18.3_2, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.3_3 <- factor(HECC_clustered$Q18.3_3, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.3_4 <- factor(HECC_clustered$Q18.3_4, levels = c(1,2,3,4,5), labels = scale2)
+
+print(
+plot(likert(HECC_clustered[,c(5,9,13,6,10,14,7,11,15,8,12,16)]), 
+     group.order = names(HECC_clustered[,c(5,9,13,6,10,14,7,11,15,8,12,16)]), 
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+)
+print(
+  plot(likert(HECC_clustered[,-(1:4)]), 
+     group.order = names(HECC_clustered[,-(1:4)]), 
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+)
+
+```
+
+### Analysis of Q18 Clusters
+
+Cluster 1 lean towards agreement with every statement, with few exceptions and contains 25 responses.
+
+```{r Q18 cluster 1, fig.height = 4, fig.width = 10, echo = FALSE}
+
+plot(likert(HECC_clustered[,c(5,9,13)]), 
+     group.order = names(HECC_clustered[,c(5,9,13)]), 
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+Cluster 2 contains 52 responses, disagrees strongly with Q18.1/2 but agrees with Q18.3 
+
+```{r Q18 cluster 2, fig.height = 4, fig.width = 10, echo = FALSE}
+
+plot(likert(HECC_clustered[,c(6,10,14)]),
+     group.order = names(HECC_clustered[,c(6,10,14)]),
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+Cluster 3, containing 48 responses, almost completely disagrees with all Questions.
+
+```{r Q18 cluster 3, fig.height = 4, fig.width = 10, echo = FALSE}
+
+plot(likert(HECC_clustered[,c(7,11,15)]), 
+     group.order = names(HECC_clustered[,c(7,11,15)]),
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     #plot.percents = TRUE,
+     #plot.percent.low = FALSE,
+     #plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+Cluster 4 was not a stable cluster (clusterwise Jaccard ~ 0.69) so is not particularly meaningful
+
+```{r Q18 cluster 4, fig.height = 4, fig.width = 10, echo = FALSE}
+
+plot(likert(HECC_clustered[,c(8,12,16)]), 
+     group.order = names(HECC_clustered[,c(8,12,16)]),
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+
+```
+
+### Repeat 2016 Analysis (Q17.1, Q18.1/3, Q19.1)
+
+In 2016 we saw two clusters, which diverged on H7 (Q18.3). Again we see that Q18.3 is the most divisive question, with clusters agreeing quite well for Q18.1, though we also see some divergence for Q17.1 and Q19.1 also.
+
+```{r Cluster Analysis for same questions as 2016, echo = FALSE}
+cluster <- clusterboot(HECC_num[,c(1,3,6,5)],B=100,bootmethod="boot", clustermethod = kmeansCBI, krange = 2:10, seed=1454) %>%
+  invisible()
+
+cluster %>%
+  print()
+
+```
+
+```{r likert plots for analysis, fig.height = 3, fig.width = 10, echo = FALSE}
+
+HECC_clustered <- HECC_num[,c(1,3,6,5)] %>%
+  as.data.frame() %>%
+  cbind(cluster = as.vector(cluster$result$partition))
+
+HECC_clustered <- mutate(HECC_clustered,
+Q17.1_1=ifelse(cluster==1,as.character(Q17.1),NA), Q17.1_2=ifelse(cluster==2,as.character(Q17.1),NA),
+Q18.1_1=ifelse(cluster==1,as.character(Q18.1),NA), Q18.1_2=ifelse(cluster==2,as.character(Q18.1),NA),
+Q18.3_1=ifelse(cluster==1,as.character(Q18.3),NA), Q18.3_2=ifelse(cluster==2,as.character(Q18.3),NA),
+Q19.1_1=ifelse(cluster==1,as.character(Q19.1),NA), Q19.1_2=ifelse(cluster==2,as.character(Q19.1),NA))
+
+HECC_clustered$Q17.1_1 <- factor(HECC_clustered$Q17.1_1, levels = c(0,1,2,3), labels = scale1)
+HECC_clustered$Q17.1_2 <- factor(HECC_clustered$Q17.1_2, levels = c(0,1,2,3), labels = scale1)
+HECC_clustered$Q18.1_1 <- factor(HECC_clustered$Q18.1_1, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.1_2 <- factor(HECC_clustered$Q18.1_2, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.3_1 <- factor(HECC_clustered$Q18.3_1, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q18.3_2 <- factor(HECC_clustered$Q18.3_2, levels = c(1,2,3,4,5), labels = scale2)
+HECC_clustered$Q19.1_1 <- factor(HECC_clustered$Q19.1_1, levels = c(1,2,3,4,5), labels = scale3)
+HECC_clustered$Q19.1_2 <- factor(HECC_clustered$Q19.1_2, levels = c(1,2,3,4,5), labels = scale3)
+
+print(
+  plot(likert(HECC_clustered[,c(6,7)]), 
+     group.order = names(HECC_clustered[,c(6,7)]), 
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+)
+print(
+  plot(likert(HECC_clustered[,c(8,9,10,11)]), 
+     group.order = names(HECC_clustered[,c(8,9,10,11)]), 
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+)
+print(
+  plot(likert(HECC_clustered[,c(12,13)]), 
+     group.order = names(HECC_clustered[,c(12,13)]), 
+     type = "bar",
+     ordered = TRUE,
+     panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+     plot.percents = TRUE,
+     plot.percent.low = FALSE,
+     plot.percent.high = FALSE,
+     low.color = "#CC0033",
+     high.color = "#669900",
+     neutral.color = "grey80",
+     text.size = 2)
+)
+
+```
+
