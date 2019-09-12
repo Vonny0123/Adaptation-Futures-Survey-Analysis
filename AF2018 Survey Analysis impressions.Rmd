@@ -1,0 +1,726 @@
+---
+title: "AF2018 Survey Impressions"
+author: "Ewan Davies"
+date: "17 September 2018"
+output: word_document
+---
+
+```{r Setup, include = FALSE}
+library(stringr)
+library(knitr)
+library(readxl)
+library(data.table)
+library(ggplot2)
+library(likert)
+library(dplyr)
+library(grDevices)
+library(plyr)          
+library(likert)
+
+col_func <- colorRampPalette(c("#CC0033","grey80","#669900"))
+
+my_faceted_plot_by_variable <- function(path, sheet = "sheet1", facet_cols = 4, prop = FALSE, save.location, save.width, save.height, save.dpi){
+
+  ##This takes the path and sheet of the spreadsheet where the data is stored, the variable and number of columns to facet by
+  # along with the save details for the image produced. The output is a graphic of faceted bar graphs
+  
+  data <- read_excel(path, sheet = sheet)
+  names(data)[c(1,2)] <- c("variable","Frequency")
+  data <- data[,c(1,2)]
+  
+  #First count up the co-occurrences of region and frequency, then find the proportion of people who answered each answer by region
+  prop_table <- data %>%
+    count(variable, Frequency) %>%
+    group_by(variable) %>%
+    mutate(total = sum(n),prop = n/sum(n)) %>%
+    as.data.frame() %>% 
+    filter(!is.na(variable)) %>%
+    filter(!is.na(Frequency))
+  
+  if(prop == FALSE){
+    
+    ggplot(prop_table, aes(x=Frequency, y=n)) +
+      geom_bar(stat='identity') +
+      facet_wrap( ~ variable, ncol=facet_cols) + 
+      theme(strip.text.y = element_text(size=6)) +
+      coord_flip() +
+      theme_bw() +
+      xlab('') +
+      ylab('') +
+      theme(text = element_text(colour="grey20",size=8,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.x = element_text(colour="grey20",size=6,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.y = element_text(colour="grey20",size=6,angle=0,hjust=1,vjust=0.5,face="plain"),  
+            axis.title.x = element_text(colour="grey20",size=12,angle=0,hjust=.5,vjust=0,face="plain"),
+            axis.title.y = element_text(colour="grey20",size=8,angle=90,hjust=.5,vjust=.5,face="plain")) +
+      theme(plot.title=element_text(family="", face="bold", size=6)) +
+      theme(legend.title = element_blank()) +
+      geom_text(stat="identity",aes(label=signif(n,2)), hjust=-0.2, size=1.5) +
+      scale_y_continuous(limits = c(0, max(prop_table$n)))
+  }else{
+    
+    ggplot(prop_table, aes(x=Frequency, y=prop)) +
+      geom_bar(stat='identity') +
+      facet_wrap( ~ variable, ncol=facet_cols) +
+      theme(strip.text.y = element_text(size=6)) +
+      coord_flip() +
+      theme_bw() +
+      xlab('') +
+      ylab('') +
+      theme(text = element_text(colour="grey20",size=8,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.x = element_text(colour="grey20",size=6,angle=0,hjust=.5,vjust=.5,face="plain"),
+            axis.text.y = element_text(colour="grey20",size=6,angle=0,hjust=1,vjust=0.5,face="plain"),  
+            axis.title.x = element_text(colour="grey20",size=12,angle=0,hjust=.5,vjust=0,face="plain"),
+            axis.title.y = element_text(colour="grey20",size=8,angle=90,hjust=.5,vjust=.5,face="plain")) +
+      theme(plot.title=element_text(family="", face="bold", size=6)) +
+      theme(legend.title = element_blank()) +
+      geom_text(stat="identity",aes(label=signif(prop,2)), hjust=-0.2, size=1.5) +
+      scale_y_continuous(limits = c(0, max(prop_table$prop)))
+    
+  }
+  
+  ggsave(save.location, width=save.width, height=save.height, dpi=save.dpi)
+ 
+}
+
+my_likert <- function(scale, path, sheet, save.location=NULL, save.width=NULL, save.height=NULL, save.dpi=NULL) {
+  ##  This function takes a scale eg. "disagree","neither agree nor disagree","agree" (lowest to highest)  and the path (file path)
+  # of an excel spreadsheet and the sheet with the data in it (see documentation for the format of this spreadsheet)
+  # along with information about how and where to save the image produced (if you wish to save)
+  
+  data <- read_excel(path = path, 
+                   sheet = sheet) %>%
+    as.data.frame()
+  
+  desired.order <- scale
+  for(x in 1:length(names(data))){
+    data[,x] <- factor(data[,x], levels = scale)
+  }
+  
+ g <- plot(likert(data), type = "bar",
+       ordered = TRUE,
+       panel.background = element_rect(size = 1, color = "grey70", fill = "grey90"),
+       plot.percents = TRUE,
+       plot.percent.low = FALSE,
+       plot.percent.high = FALSE,
+       low.color = "#CC0033",
+       high.color = "#669900",
+       neutral.color = "grey80",
+       text.size = 2)
+ g
+ 
+ ggsave(save.location, width=save.width, height=save.height, dpi=save.dpi)
+ 
+ return(g)
+}
+
+my_stacked_proportion_barchart <- function(path, sheet, range, cols, col_names, n = 3, sort_col = 2,
+                                          save.location, save.width, save.height, save.dpi){
+  
+  col_func <- colorRampPalette(c("#CC0033","grey80","#669900"))
+  
+  #This reads in a summarised set of data
+  data <- read_excel(path, sheet = sheet, range = range)
+  
+  #remove unwanted columns
+  data <- (data %>%
+                 as.data.frame())[,cols]
+  names(data) <- col_names
+  
+  data2 <- data %>% #Order by frequently
+    arrange(desc(data[,sort_col])) %>%
+    melt()
+  return(
+  ggplot(data2, aes(x=data2[,1],y=value,fill=variable))+
+    geom_bar(stat = "identity", position = "stack", width = 0.9)+
+    xlab("") +
+    ylab("")+
+    scale_x_discrete(limits=unique(data2[,1]), labels = function(x) str_wrap(x, width = 15))+
+    scale_y_continuous(labels = scales::percent) +
+    #scale_x_discrete(limits=platform.names.ascending)+ ## set the order of bars with this
+    coord_flip()+
+    scale_fill_manual(values=col_func(n) , labels= function(x) str_wrap(x, width = 25))+
+    theme(text = element_text(size=12), legend.position = "bottom")
+  #geom_text(aes(label=a,y=data_1$t), vjust=-0.2) 
+  #geom_text(aes(label = ),hjust=-0.2, size=2)
+  #geom_text(stat="count",aes(label=..count..), hjust=-0.2, size=6)
+  )
+  # This will save a 400x400 file at 100 ppi width=4, height=4, dpi=100)
+  ggsave(save.location, width = save.width, height = save.height, dpi = save.dpi)
+  
+}
+
+my_proportion_dots <- function(path, sheet, other, legend.title, save.location, save.width, save.height, save.dpi){
+  
+  #This is imported as a table for which each respondent has a row with their region and a 1 or 0 depending on whether they use each platform or not
+  data <- read_excel(path, sheet = sheet) %>%
+    as.data.frame()
+  
+  for (x in 1:length(data[,1])){
+    if(data[x,1] %in% other){
+      data[x,1] <- "Other Areas"
+    }
+  }
+  
+  #Then aggregate to count number of people using each platform by region
+  data_freq <- aggregate(data[,-c(1)],list(data[,1]),FUN = sum)
+  
+  #Reshape the data into a form to be plotted (platforms are now a column too) and we get a total count column
+  df1 <- melt(data_freq, id = "Group.1")
+  names(df1) <- c("Region", "Platform", "n")
+  
+  #calculate the frequencies
+  data_prop <- df1 %>%
+    group_by(Region) %>%
+    mutate(total = sum(n), prop = n/total)
+  
+  #reorder and set levels so that the graph displays in the correct order
+  data_prop <- data_prop[order(data_prop$total),]
+  levels <- unique(data_prop$Platform)
+  data_prop$Platform <- factor(data_prop$Platform, levels = levels)
+  
+  ggplot(data_prop,aes(x=reorder(Platform,prop),y=Region))+
+    geom_point(alpha = 1)+
+    stat_sum(aes(color = data_prop$prop, size = data_prop$prop))+
+    scale_size_area(guide=guide_legend(title=''))+
+    scale_color_gradient(low='white',high='purple',
+                         guide=guide_legend(title=legend.title))+
+    ggtitle('')+
+    xlab("")+
+    ylab("")+
+    coord_flip()+
+    theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+    theme(panel.background = element_rect(fill = "white")) + #new
+    geom_hline(yintercept=seq(1.5, length(unique(data_prop$Region))-0.5, 1), lwd=0.3, colour="black") +
+    geom_vline(xintercept=seq(1.5, length(unique(data_prop$Platform))-0.5, 1), lwd=0.3, colour="black") 
+  ggsave(save.location, width=save.width, height=save.height, dpi=save.dpi)
+  
+}
+
+```
+
+## Q1: Please choose all statements that apply to you.
+
+```{r Q1, fig.align = "center", echo = FALSE}
+library(stringr)
+
+Q1_df <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    range = "A4:C7", col_names = FALSE)
+names(Q1_df) <- c("x1", "x2", "x3")
+print(
+g <- ggplot(Q1_df, aes(x = x1, y = x3)) +
+  geom_bar(stat = 'identity') +
+  theme_bw()+
+  theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  geom_text(stat="identity",aes(label = x3, vjust=0)) +
+  scale_x_discrete(labels = function(x1) str_wrap(x1, width = 15)) +
+  xlab('') +
+  ylab('')
+)
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q1.png", width=8, height=8, dpi=300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q1.png")
+```
+
+## Q2: What was useful to you at the conference this year?
+
+```{r Q2, echo = FALSE, fig.align = "center"}
+
+g <- my_stacked_proportion_barchart(path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx",
+                               sheet = "Question 2",
+                               range = "A3:I11",
+                               cols = c(1,2,4,6),
+                               col_names = c("x","Not at all useful","Somewhat useful","Very useful"),
+                               save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q2.png", 
+                               save.width = 6,
+                               save.height = 3,
+                               save.dpi = 300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q2.png")
+
+```
+
+## Q3: Which platform/events were particularly useful for networking?
+
+```{r Q3, plot.width = 4, plot.height = 2, echo = FALSE, fig.align = "center"}
+
+g <- my_stacked_proportion_barchart(path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx",
+                               sheet = "Question 3",
+                               range = "A3:I8",
+                               cols = c(1,2,4,6,8),
+                               n = 4,
+                               col_names = c("x","Did not attend","Not at all useful","Somewhat useful","Very useful"),
+                               save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q3.png", 
+                               save.width = 6,
+                               save.height = 3,
+                               save.dpi = 300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q3.png")
+
+```
+
+### Now to see the opinions of those who attended
+
+```{r Q3 Ignoring non-attendance, plot.width = 8, plot.height = 4, echo = FALSE}
+
+Q3.1_df <- (read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 3", range = "A3:I7"))[,c(1,5,7,9)]
+names(Q3.1_df) <- c("x", "x1", "x2", "x3")
+
+Q3.1_prop <- (Q3.1_df %>%
+  as.data.frame() %>%
+  mutate(x1_prop = x1/(x1+x2+x3), 
+         x2_prop = x2/(x1+x2+x3),
+         x3_prop = x3/(x1+x2+x3),
+         attended = x1+x2+x3))[,-(2:4)]
+Q3_attendence <- Q3.1_prop[,c(1,5)]
+Q3.1_prop <- Q3.1_prop[,1:4]
+
+Q3.1_prop <- Q3.1_prop %>%
+    arrange(desc(Q3.1_prop[,2])) %>%  #order by "Not at all useful"
+    melt()  
+
+
+g <- ggplot(Q3.1_prop, aes(x=x, y=value, fill=variable))+
+    geom_bar(stat = "identity", position = "stack", width = 0.9)+
+    scale_x_discrete(limits=unique(Q3.1_prop[,1]), labels = function(x) str_wrap(x, width = 20))+
+    xlab("") +
+    ylab("")+
+    scale_y_continuous(labels = scales::percent) +
+    coord_flip()+
+    scale_fill_manual(values=col_func(3) , labels=c("Not at all useful", "Somewhat useful", "Very Useful")) +
+    theme(text = element_text(size=6))
+
+print(
+  Q3_attendence
+)
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q3_Ignoring non-attendance.png", width=6, height=3, dpi=300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q3_Ignoring non-attendance.png")
+
+```
+
+## Q4: The Special Sessions (sessions formatted uniquely by an organising institution) were designed to be engaging and interactive. Did you find this the case?
+
+```{r Q4, echo = FALSE}
+
+Q4 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 4", range = "A3:C6")
+names(Q4) <- c("Response", "Proportion", "Total")
+print(
+  Q4
+)
+
+library(gridExtra)
+png("Q4.png", height = 50*nrow(Q4), width = 200*ncol(Q4))
+grid.table(Q4)
+dev.off()
+
+```
+
+## Q5: How relevant and interesting did you find these programme items?
+
+```{r Q5, plot.width = 6, plot.height = 3, echo = FALSE, fig.align = "center"}
+
+g <- my_stacked_proportion_barchart(path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx",
+                               sheet = "Question 5",
+                               range = "A3:G11",
+                               cols = c(1,2,4,6),
+                               n = 3,
+                               col_names = c("x","I did not attend","I attended but did not find it relevant or interesting","I attended and found it relevant and interesting"),
+                               save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q5.png", 
+                               save.width = 8,
+                               save.height = 2,
+                               save.dpi = 300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q5.png")
+
+```
+
+
+### Now to see the opinions of those who attended
+
+```{r Q5 Ignoring non-attendance, plot.width = 6, plot.height = 3, echo = FALSE, fig.align = "center"}
+
+Q5.1_df <- (read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 5", range = "A3:G11"))[,c(1,5,7)]
+names(Q5.1_df) <- c("x", "x1", "x2")
+
+Q5.1_prop <- (Q5.1_df %>%
+  as.data.frame() %>%
+  mutate(x1_prop = x1/(x1+x2), 
+         x2_prop = x2/(x1+x2),
+         attended = x1+x2))[,-(2:3)]
+Q5_attendence <- Q5.1_prop[,c(1,4)]
+Q5.1_prop <- Q5.1_prop[,1:3]
+
+Q5.1_prop <- Q5.1_prop %>%
+    arrange(desc(Q5.1_prop[,2])) %>%  #order by "Not at all useful"
+    melt()  
+
+g <- ggplot(Q5.1_prop, aes(x=x, y=value, fill=variable))+
+    geom_bar(stat = "identity", position = "stack", width = 0.9)+
+    scale_x_discrete(limits=unique(Q5.1_prop[,1]), labels = function(x) str_wrap(x, width = 20))+
+    xlab("") +
+    ylab("")+
+    scale_y_continuous(labels = scales::percent) +
+    coord_flip()+
+    scale_fill_manual(values=col_func(2) , labels=c("I attended but did not find it relevant or interesting", "I attended and found it relevant and interesting")) +
+    theme(text = element_text(size=6), legend.position = "bottom")
+
+print(
+  Q5_attendence
+)
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q5_Ignoring non-attendance.png", width=6, height=3, dpi=300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q5_Ignoring non-attendance.png")
+
+```
+
+## Q6: Did the conference increase your awareness and understanding of the sponsoring organisations and their contribution to climate change adaptation?
+
+```{r Q6, fig.height = 4, fig.width = 6, echo = FALSE, fig.align = "center"}
+
+g <- my_stacked_proportion_barchart(path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx",
+                               sheet = "Question 6",
+                               range = "A3:E12",
+                               cols = c(1,2,4),
+                               n = 2,
+                               col_names = c("x","No","Yes"),
+                               save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q6.png", 
+                               save.width = 6,
+                               save.height = 6,
+                               save.dpi = 300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q6.png")
+
+```
+
+## Q7: How well did the AF2018 themes correspond with the current state of play within the climate adaptation field?
+
+
+```{r Q7, fig.height = 4, fig.width = 6, echo = FALSE, fig.align = "center"}
+
+g <- my_stacked_proportion_barchart(path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx",
+                               sheet = "Question 7",
+                               range = "A3:F9",
+                               cols = c(1,2,4,6),
+                               n = 3,
+                               sort_col = 4,
+                               col_names = c("x","Not at all relevant","Somewhat relevant", "Highly relevant"),
+                               save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q7.png", 
+                               save.width = 6,
+                               save.height = 6,
+                               save.dpi = 300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q7.png")
+
+```
+
+## Q8: Please select any insights or advances you learned from the conference
+
+```{r Q8, fig.height = 4, fig.width = 10, echo = FALSE, fig.align = "center"}
+
+Q8 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 8", range = "A3:B14") %>%
+  as.data.frame()
+names(Q8) <- c("Insight","prop")
+Q8 <- Q8 %>%
+  arrange(desc(Q8[,2]))
+
+g <- ggplot(Q8, aes(x = Insight, y = prop)) +
+  geom_bar(stat = 'identity') +
+  theme_bw()+
+  scale_y_continuous(labels = scales::percent) +
+  theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  geom_text(stat="identity",aes(label = prop, vjust=0)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 25),limits=unique(Q8[,1])) +
+  xlab('') +
+  ylab('')
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q8.png", width=10, height=4, dpi = 300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q8.png")
+
+
+```
+
+## Q9: In your opinion, what are the major constraints to successful and effective adaptation actions? (select any that apply)
+
+```{r Q9, fig.height = 4, fig.width = 10, echo = FALSE, fig.align = "center"}
+
+Q9 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 9", range = "A3:B9") %>%
+  as.data.frame()
+
+names(Q9) <- c("Constraint","prop")
+Q9 <- Q9 %>%
+  arrange(desc(Q9[,2]))
+
+g <- ggplot(Q9, aes(x = Constraint, y = prop)) +
+  geom_bar(stat = 'identity') +
+  theme_bw()+
+  scale_y_continuous(labels = scales::percent) +
+  theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  geom_text(stat="identity",aes(label = prop, vjust=0)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 35),limits=unique(Q9[,1])) +
+  xlab('') +
+  ylab('')
+
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q9.png", width=8.5, height=6, dpi=300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q9.png")
+
+```
+
+## Q11: Which of the previous Adaptation Futures conferences have you attended?
+
+```{r Q11, echo= FALSE}
+
+Q11 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 11", range = "A3:C8") %>%
+  as.data.frame()
+names(Q11) <- c("Conferences", "Proportion of Respondents", "Total Respondents")
+print(Q11)
+
+png("Q11.png", height = 50*nrow(Q11), width = 200*ncol(Q11))
+grid.table(Q11)
+dev.off()
+
+```
+
+## Q12: Where are you based?
+
+```{r Q12, fig.height = 4, fig.width = 8, echo = FALSE, fig.align = "center"}
+
+Q12 <- AF2018_summarised <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 12", range = "A3:B11") %>%
+  as.data.frame()
+
+names(Q12) <- c("Region","prop")
+Q12 <- Q12 %>%
+  arrange(desc(Q12[,2]))
+
+g <- ggplot(Q12, aes(x = Region, y = prop)) +
+  geom_bar(stat = 'identity') +
+  theme_bw()+
+  scale_y_continuous(labels = scales::percent) +
+  theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  geom_text(stat="identity",aes(label = prop, vjust=0)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 25),limits=unique(Q12[,1])) +
+  xlab('') +
+  ylab('')
+
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q12.png", width=7, height=5, dpi=300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q12.png")
+
+```
+
+## Q13: Please select the type of entity you work for:
+
+```{r Q13, fig.height = 4, fig.width = 8, echo = FALSE, fig.align = "center"}
+
+Q13 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 13", range = "A3:B10")%>%
+  as.data.frame()
+
+names(Q13) <- c("Entity","prop")
+Q13 <- Q13 %>%
+  arrange(desc(Q13[,2]))
+
+g <- ggplot(Q13, aes(x = Entity, y = prop)) +
+  geom_bar(stat = 'identity') +
+  theme_bw()+
+  scale_y_continuous(labels = scales::percent) +
+  theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  geom_text(stat="identity",aes(label = prop, vjust=0)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 25),limits=unique(Q13[,1])) +
+  xlab('') +
+  ylab('')
+
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q13.png", width=7, height=5, dpi=300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q13.png")
+
+```
+
+## Q14: What is the focus of your entity/ interest? Please select as many as are relevant
+
+```{r Q14, fig.height = 6, fig.width = 4, echo = FALSE, fig.align = "center"}
+
+Q14 <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx", 
+    sheet = "Question 14", range = "A3:C8")%>%
+  as.data.frame()
+
+names(Q14) <- c("Focus","prop","total")
+Q14 <- Q14 %>%
+  arrange(desc(Q14[,3]))
+
+
+g <- ggplot(Q14, aes(x = Focus, y = total)) +
+  geom_bar(stat = 'identity') +
+  theme_bw()+
+  theme(text = element_text(size=14),
+          axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  geom_text(stat="identity",aes(label = total, vjust = 0)) +
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 25),limits=unique(Q14[,1])) +
+  xlab('') +
+  ylab('')
+
+
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q14.png", width=4, height=4, dpi=300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q14.png")
+
+```
+
+## Q15: (optional)Which of the following knowledge platforms do you use in your work?
+
+```{r Q15, fig.height = 4, fig.width = 8, echo = FALSE, fig.align = "center"}
+
+g <- my_stacked_proportion_barchart(path = "C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_summarised.xlsx",
+                               sheet = "Question 15",
+                               range = "A3:G28",
+                               cols = c(1,2,4,6),
+                               n = 3,
+                               sort_col = 2,
+                               col_names = c("x","I have never used this platform","I use this platform occassionally", "I use this platform frequently"),
+                               save.location = "C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q15.png", 
+                               save.width = 8,
+                               save.height = 4,
+                               save.dpi = 300)
+
+include_graphics("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q15.png")
+
+```
+
+```{r Q15 by Location}
+
+platformsXregion_simple <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Platforms by location") #%>%
+  #as.data.frame()
+
+#These are to be rolled into one "other" category as their proportions were so low
+Others <- c("Australasia", "Central and South America", "Small Islands", "North America")
+
+for (x in 1:length(platformsXregion_simple$Region)){
+  if(platformsXregion_simple$Region[x] %in% Others){
+    platformsXregion_simple$Region[x] <- "Other Areas"
+  }
+}
+
+#Then aggregate to count number of people using each platform by region
+platformsXregion_freq <- aggregate(platformsXregion_simple[,-c(1)],list(platformsXregion_simple$Region),FUN = sum)
+
+#Reshape the data into a form to be plotted (platforms are now a column too) and we get a total count column
+df1 <- melt(platformsXregion_freq, id = "Group.1")
+names(df1) <- c("Region", "Platform", "n")
+
+df1 <- df1 %>%
+  data.table()
+platformsXregion_prop <- df1[,list(Platform,n, total = sum(n)),by = Region] %>%
+  as.data.frame() %>%
+  mutate(prop = n/total)
+
+#calculate the frequencies
+#platformsXregion_prop <- df1 %>%
+#  group_by(Region) %>%
+#  mutate(total = sum(n)) %>%
+#  ungroup()
+#  mutate(prop = n/total)
+
+#reorder and set levels so that the graph displays in the correct order
+platformsXregion_prop <- platformsXregion_prop[order(platformsXregion_prop$total),]
+levels <- unique(platformsXregion_prop$Platform)
+platformsXregion_prop$Platform <- factor(platformsXregion_prop$Platform, levels = levels)
+
+ggplot(platformsXregion_prop,aes(x=reorder(Platform,prop),y=Region))+
+  geom_point(alpha = 0)+
+  stat_sum(aes(color = platformsXregion_prop$prop, size = platformsXregion_prop$prop))+
+  scale_size_area(guide=guide_legend(title=''))+
+  scale_color_gradient(low='white',high='purple',
+                       guide=guide_legend(title="Percentage of Users
+Using the Platform
+within the Region"))+
+  ggtitle('')+
+  xlab("")+
+  ylab("")+
+  coord_flip()+
+  theme(text = element_text(size=14),
+        axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  theme(panel.background = element_rect(fill = "white")) + #new
+ geom_hline(yintercept=seq(1.5, length(unique(platformsXregion_prop$Region))-0.5, 1), lwd=0.3, colour="black") +
+  geom_vline(xintercept=seq(1.5, length(unique(platformsXregion_prop$Platform))-0.5, 1), lwd=0.3, colour="black") 
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q15_Location.png", width=10, height=8, dpi=300)
+
+```
+```{r Q15 by Entity}
+
+platformsXregion_simple <- read_excel("C:/Users/Ewan's/Desktop/AF2018_Survey/AF2018_individual.xlsx", 
+    sheet = "Platforms by entity") #%>%
+  #as.data.frame()
+
+#These are to be rolled into one "other" category as their proportions were so low
+Others <- NULL
+
+for (x in 1:length(platformsXregion_simple$Region)){
+  if(platformsXregion_simple$Region[x] %in% Others){
+    platformsXregion_simple$Region[x] <- "Other Areas"
+  }
+}
+
+#Then aggregate to count number of people using each platform by region
+platformsXregion_freq <- aggregate(platformsXregion_simple[,-c(1)],list(platformsXregion_simple$Entity),FUN = sum)
+
+#Reshape the data into a form to be plotted (platforms are now a column too) and we get a total count column
+df1 <- melt(platformsXregion_freq, id = "Group.1")
+names(df1) <- c("Entity", "Platform", "n")
+
+df1 <- df1 %>%
+  data.table()
+platformsXregion_prop <- df1[,list(Platform,n, total = sum(n)),by = Entity] %>%
+  as.data.frame() %>%
+  mutate(prop = n/total)
+
+#calculate the frequencies
+#platformsXregion_prop <- df1 %>%
+#  group_by(Region) %>%
+#  mutate(total = sum(n)) %>%
+#  ungroup()
+#  mutate(prop = n/total)
+
+#reorder and set levels so that the graph displays in the correct order
+platformsXregion_prop <- platformsXregion_prop[order(platformsXregion_prop$total),]
+levels <- unique(platformsXregion_prop$Platform)
+platformsXregion_prop$Platform <- factor(platformsXregion_prop$Platform, levels = levels)
+
+ggplot(platformsXregion_prop,aes(x=reorder(Platform,prop),y=Entity))+
+  geom_point(alpha = 0)+
+  stat_sum(aes(color = platformsXregion_prop$prop, size = platformsXregion_prop$prop))+
+  scale_size_area(guide=guide_legend(title=''))+
+  scale_color_gradient(low='white',high='purple',
+                       guide=guide_legend(title="Percentage of Users
+Using the Platform
+within the Entity"))+
+  ggtitle('')+
+  xlab("")+
+  ylab("")+
+  coord_flip()+
+  theme(text = element_text(size=14),
+        axis.text.x = element_text(angle=45, vjust=1, hjust = 1)) +
+  theme(panel.background = element_rect(fill = "white")) + #new
+ geom_hline(yintercept=seq(1.5, length(unique(platformsXregion_prop$Entity))-0.5, 1), lwd=0.3, colour="black") +
+  geom_vline(xintercept=seq(1.5, length(unique(platformsXregion_prop$Platform))-0.5, 1), lwd=0.3, colour="black") 
+ggsave("C:/Users/Ewan's/Desktop/AF2018_Survey/images/Final/impressions/Q15_Entity.png", width=10, height=8, dpi=300)
+
+```
